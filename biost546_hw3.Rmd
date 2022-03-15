@@ -1,0 +1,382 @@
+---
+title: "BIOST546_HW3"
+author: "Qin Li"
+date: "2/15/2022"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F, message = F)
+getwd()
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(GGally)
+library(MASS)
+library(ggplot2)
+library(dplyr)
+library(class)
+library(dummies)
+library(pracma)
+library(ggcorrplot)
+library(datawizard)
+```
+
+# 1， 
+
+## a.
+
+The dataset has 569 observations, with 30 predictors. It has 357 benign and 212 malignant observations. 
+
+
+```{r q1a,message=F}
+
+wdbc <- read_csv("wdbc.data", col_names = FALSE) 
+
+wdbc <- wdbc[,2:32]
+
+wdbc$X2 <- as.factor(wdbc$X2)
+nrow(wdbc)
+num_obs <- wdbc %>% group_by(X2) %>% summarise(n = n())
+num_obs
+```
+## b.
+
+We split the data into training and test sets, with 400 data points in training set and the remaining in the test set. 
+
+```{r q1b}
+set.seed(2)
+train.id <- sample(dim(wdbc)[1], 400)
+train.set <- wdbc[train.id,]
+test.set <- wdbc[-train.id,]
+
+```
+
+## c.
+
+We perform normalization separately in training and test set is because they are different data, the mean in training set may not be the same as the mean in the test set. Using the mean in training set will induce bias in the test set. 
+
+
+```{r q1c}
+norm.train <- normalize(train.set[-c(1)])
+norm.test <- normalize(test.set[-c(1)])
+```
+
+## d. 
+
+There might be some variables that are very similar to each other, thus induce multicollinearity and will reduce the precision of the estimated coefficients. 
+
+```{r q1d}
+
+cor.train <- cor(norm.train)
+ggcorrplot(cor.train)
+
+```
+
+## e.
+
+The correlation between X1 and X3 is 0.998, however, 
+beta1 is -5396.5 and beta3 is 6170.8 in the model. The multicollinearity will increase the variance of coefficient estimates, and let it be sensitive to minor changes. Therefore we can see a huge change in the magnitude in beta1 and beta3. 
+
+```{r q1e}
+dat <- data.frame(train.set$X2,norm.train)
+dat$y <- dat$train.set.X2
+dat <- dat[,-1]
+mod.log <- glm(y~., family = "binomial", data = dat)
+summary(mod.log)
+cor(dat$X3,dat$X5)
+```
+
+## f.
+
+The prediction accuracy in the training set is 1.00, and the prediction accuracy in the test set is 0.85. It's not a surprise the the accuracy in training set is higher in the test set. But with 100% accuracy in the training set, we might facing overfitting. 
+
+The confusion table for training and test set are the following:
+
+```{r q1f}
+dat.test <- data.frame(test.set$X2,norm.test)
+dat.test$y <- dat.test$test.set.X2
+dat.test <- dat.test[,-1]
+train.pred <- predict(mod.log, newdata = dat, type="response")
+test.pred <- predict(mod.log, newdata = dat.test,type = "response")
+
+glm.train <- rep("B",400)
+glm.test <- rep("B",169)
+glm.train[train.pred > 0.5] <- "M"
+glm.test[test.pred  > 0.5] <- "M"
+
+kable(table(glm.train,dat$y),caption = "confusion table for training set")
+
+kable(table(glm.test,dat.test$y), capstion = "confusion table for test set")
+
+
+acc.train <- 1
+acc.test <- (97+46)/(97+46+21+5)
+
+```
+
+
+# 2. 
+
+## a.
+
+See the code below
+
+```{r q2a}
+y.train <- dat$y
+norm.train <- as.matrix(norm.train)
+y.test <- dat.test$y
+norm.test <- as.matrix(norm.test)
+
+```
+
+
+
+## b.
+
+See the code below
+
+```{r q2b}
+library(glmnet)
+lamb <- 10^seq(5,-18,length=100)
+ridge.reg <- glmnet(norm.train, y.train, family = "binomial",alpha=0,lambda = lamb)
+
+```
+
+
+## c.
+
+The values in beta1 are much lower than beta3 when the log-lambda is less than -10. When log-lambda reachs -10, the two values stays the same around 0. Both beta1 and beta3 are increasing as lambda increases, but beta1 increases at a faster speed than beta3. Thus beta3 is less efficient than beta1 in this situation. 
+
+```{r q2c}
+plot(ridge.reg$beta[1,]~log(ridge.reg$lambda), type = "l", xlab = "Log lambda", ylab = "Coefficient estimates", main = "Coefficient beta1, beta3 in function of log lambda")
+lines(ridge.reg$beta[3,]~log(ridge.reg$lambda), col = "blue")
+legend("bottomright", legend = c("beta 1", "beta 3"), col = c("black", "blue"), lty = rep(1, 2), lwd = rep(2, 2))
+
+```
+
+## d.
+
+The value of lambda that minimizes the CV misclassification error is 0.0022. 
+
+```{r q2d}
+cv.ridge <- cv.glmnet(as.matrix(norm.train), y.train, family = "binomial",
+                       alpha=0,lambda = lamb,type.measure = "class")
+cv.ridge$lambda.min
+
+plot(cv.ridge)
+
+
+```
+
+## e.
+
+None of the coefficients are zero because Ridge regression does not shrink coefficients to zero.
+
+```{r q2e}
+
+ridge.coef <- coef(cv.ridge, s=cv.ridge$lambda.min)
+ridge.coef[ridge.coef!=0]
+
+```
+
+## f.
+
+The prediction accuracy in the training set is 0.99, and the prediction accuracy in the test set is 0.98. It is not surprising that the accuracy from test set is lower than the training set. 
+
+```{r q2f}
+set.seed(2)
+ridge.dat.train <- data.frame(y.train,norm.train)
+ridge.dat.test <- data.frame(y.test,norm.test)
+cv.ridge.op <- glmnet(as.matrix(norm.train), y.train, family = "binomial",
+                       alpha=0,lambda = cv.ridge$lambda.min)
+
+
+train.ridge <- predict(cv.ridge.op, newx = as.matrix(norm.train), type="response")
+test.ridge <- predict(cv.ridge.op, newx = as.matrix(norm.test),type = "response")
+
+ridge.train <- rep("B",400)
+ridge.test <- rep("B",169)
+ridge.train[train.ridge > 0.5] <- "M"
+ridge.test[test.ridge  > 0.5] <- "M"
+
+kable(table(ridge.train,ridge.dat.train$y),caption = "confusion table for training set")
+
+kable(table(ridge.test,ridge.dat.test$y), capstion = "confusion table for test set")
+
+acc.ridge.train <- (255+142)/(255+142+3)
+acc.ridge.test <- (102+64)/(102+64+3)
+```
+
+## g.
+
+The plot is as below
+
+```{r q2g}
+library(pROC)
+n_segm = 20
+TPR = replicate(n_segm, 0)
+FPR = replicate(n_segm, 0)
+p_th = seq(0,1,length.out = n_segm)
+
+for (i in 1:n_segm) {
+  ridge.label.test = rep("B", 169)
+  ridge.label.test[test.ridge > p_th[i]] = "M"
+  
+  tt.ridge.test = table(ridge.test,ridge.dat.test$y)
+  TPR[i] = mean(ridge.label.test[ridge.dat.test$y == 'M'] ==
+                  ridge.dat.test$y[ridge.dat.test$y == 'M'])
+  FPR[i] = mean(ridge.label.test[ridge.dat.test$y == 'B']
+                !=ridge.dat.test$y[ridge.dat.test$y == 'B'])
+}
+
+# plot(x = FPR, y = TPR, 'l')
+ggplot() + geom_path(aes(x = FPR, y = TPR)) + ggtitle("ROC curve on the test set")
+pred.ridge <- ifelse(ridge.test=="B",0,1)
+out.ridge <- ifelse(ridge.dat.test$y =="B",0,1)
+roc.ridge <- roc(out.ridge, pred.ridge)
+auc(roc.ridge)
+```
+
+
+## h.
+
+The AUC is 0.97. 
+
+
+# 3. 
+
+## b.
+
+See the code below
+
+```{r q3b}
+lasso.reg <- glmnet(norm.train, y.train, family = "binomial",alpha=1,lambda = lamb)
+
+```
+
+
+## c.
+
+The value of beta1 increases as log lambda increases, whereas the value of beta3 stays as 0 at all time. It is likely because based on the correlation between the two variable, they are really similar. The lasso regression will shrink one of them to 0.
+
+
+```{r q3c}
+plot(lasso.reg$beta[1,]~log(lasso.reg$lambda), type = "l", xlab = "Log lambda", ylab = "Coefficient estimates", main = "Coefficient beta1, beta3 in function of log lambda")
+lines(lasso.reg$beta[3,]~log(lasso.reg$lambda), col = "blue")
+legend("bottomright", legend = c("beta 1", "beta 3"), col = c("black", "blue"), lty = rep(1, 2), lwd = rep(2, 2))
+
+```
+
+## d.
+The value of lambda that minimizes the CV mis- classification error is 0.0063. 
+
+See the plot below
+
+```{r q3d, message=F}
+cv.lasso <- cv.glmnet(as.matrix(norm.train), y.train, family = "binomial",
+                       alpha=1,lambda = lamb,type.measure = "class")
+cv.lasso$lambda.min
+
+plot(cv.lasso)
+
+```
+
+## e.
+
+There are 12 variables that there coefficients that are not 0. The lasso regression is selecting variables, and making some coefficients of the variables go to 0. 
+
+```{r q3e}
+
+lasso.coef <- coef(cv.lasso, s=cv.lasso$lambda.min)
+lasso.coef[lasso.coef!=0]
+```
+
+## f.
+
+The prediction accuracy in the training set is 0.98, and the prediction accuracy in the test set is 0.99. It is surprising that the accuracy from test set is higher than the training set, but it can change if we change a seed. 
+
+
+```{r q3f}
+
+lasso.dat.train <- data.frame(y.train,norm.train)
+lasso.dat.test <- data.frame(y.test,norm.test)
+cv.lasso.op <- glmnet(as.matrix(norm.train), y.train, family = "binomial",
+                       alpha=1,lambda = cv.lasso$lambda.min)
+
+
+train.lasso <- predict(cv.lasso.op, newx = as.matrix(norm.train), type="response")
+test.lasso <- predict(cv.lasso.op, newx = as.matrix(norm.test),type = "response")
+
+lasso.train <- rep("B",400)
+lasso.test <- rep("B",169)
+lasso.train[train.lasso > 0.5] <- "M"
+lasso.test[test.lasso > 0.5] <- "M"
+
+kable(table(lasso.train,lasso.dat.train$y),caption = "confusion table for training set")
+
+kable(table(lasso.test,lasso.dat.test$y), capstion = "confusion table for test set")
+
+acc.lasso.train <- (253+139)/(253+139+6+2)
+acc.lasso.test <- (102+65)/(102+65+2)
+```
+
+## g.
+
+```{r q3g}
+n_segm = 20
+TPR = replicate(n_segm, 0)
+FPR = replicate(n_segm, 0)
+p_th = seq(0,1,length.out = n_segm)
+
+for (i in 1:n_segm) {
+  lasso.label.test = rep("B", 169)
+  lasso.label.test[test.lasso > p_th[i]] = "M"
+  
+  tt.lasso.test = table(lasso.test,lasso.dat.test$y)
+  TPR[i] = mean(lasso.label.test[lasso.dat.test$y == 'M'] ==
+                  lasso.dat.test$y[lasso.dat.test$y == 'M'])
+  FPR[i] = mean(lasso.label.test[lasso.dat.test$y == 'B']
+                !=lasso.dat.test$y[lasso.dat.test$y == 'B'])
+}
+
+# plot(x = FPR, y = TPR, 'l')
+ggplot() + geom_path(aes(x = FPR, y = TPR)) + ggtitle("ROC curve on the test set")
+pred.lasso <- ifelse(lasso.test=="B",0,1)
+out.lasso <- ifelse(lasso.dat.test$y =="B",0,1)
+roc.lasso <- roc(out.lasso, pred.lasso)
+auc(roc.lasso)
+
+```
+
+## h.
+
+The AUC is 0.985. 
+
+# 4.
+
+The simple glm performed the best at the training set, however, it also have the worst accuracy in the test set, probably due to overfitting. The prediction accuracy in both ridge and lasso regression are 0.99, but ridge regression have a better test set performance than the lasso test set. The simple glm has the best model interpretation, and both ridge and lasso are more subtle, especially with the penalty and feature selection. 
+
+```{r q4}
+acc.tab <- data.frame(rbind(c(acc.train,acc.test),
+                 c(acc.ridge.train,acc.ridge.test),
+                 c(acc.lasso.train,acc.lasso.test)))
+colnames(acc.tab) <- c("training","test")
+rownames(acc.tab) <- c("glm","ridge","lasso")
+acc.tab
+
+```
+
+
+
+
+
+
+
+
+
+
+
+

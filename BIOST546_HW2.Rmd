@@ -1,0 +1,511 @@
+---
+title: "BIOST546_HW2"
+author: "Qin Li"
+date: "1/27/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+getwd()
+library(tidyverse)
+library(ggplot2)
+library("rigr")
+library(knitr)
+library(GGally)
+library(MASS)
+library(ggplot2)
+library(dplyr)
+library(class)
+library(dummies)
+library(pracma)
+
+```
+
+# 1.
+
+## a).
+The sample size is 569, and there are 31 predictors. Within 568 cases, there are 357 benign and 212 malignant.
+
+```{r Q1a,echo=FALSE,message=F}
+############### 1a
+wdbc <- read_csv("wdbc.data", col_names = FALSE) 
+wdbc <- wdbc[,c(2,3,4)] 
+colnames(wdbc) <- c("diagnosis","radius","texture")
+wdbc$diagnosis <- as.factor(wdbc$diagnosis)
+
+
+```
+
+## b).
+
+No, especially for benign patients, there isn't an obvious pattern from the scatterplot. As for the malignant class, it's a bit too spread and sparse at the end of x axis. Therefore, it will be difficult to accurately predict the outcome from the predictors. 
+
+We split the data into training and test sets, with 400 data points in training set and the remaining in the test set. 
+
+```{r Q1b,echo=FALSE}
+############### 1b
+set.seed(241)
+train.id <- sample(dim(wdbc)[1], 400)
+train.set <- wdbc[train.id,]
+test.set <- wdbc[-train.id,]
+
+```
+
+## c).
+
+The plot is as follows 
+
+```{r Q1c,echo=FALSE}
+############### 1c
+p1 <- ggplot(train.set, mapping = aes(x = radius, y = texture, color = diagnosis)) + geom_point() +
+  ggtitle("scatterplor of radius on texture") + xlab("Average radius") + ylab("Average texture")
+p1
+```
+
+## d).
+
+When comparing those differing with 1 unit of avg radius and same average texture, we estimated that the odds ratio for malignant is 2.80 times higher than the odds ratio for benign patients (p <0.001). When comparing those differing with 1 unit of avg texture and same average radius, we estimated that the odds ratio for malignant is 1.31 times higher than the odds ratio for benign patients (p<0.001). 
+
+```{r Q1d,echo=FALSE}
+############### 1d
+log.mod <- glm(diagnosis~radius+texture, family = "binomial", data = train.set)
+
+t1 <- kable(summary(log.mod)$coef)
+
+t1
+```
+
+
+## e).
+$$p(y=M|(x1,x2)=(10,12)) = \frac{exp(-20.39+1.03*10+0.27*12)}{1+ exp(-20.39+1.03*10+0.27*12)}=0.0011$$
+
+The calculated probability is 0.0011, and the prediction computed with predict is 0.0010, it is pretty close. 
+
+```{r Q1e,echo=FALSE}
+############### 1e
+glm.pred <- predict(log.mod, newdata = data.frame(radius = 10, texture = 12),type = "response")
+
+
+```
+
+
+## f).
+
+The prediction accuracy in training set is (233+123)/400 = 0.89, the prediction accuracy in test set is (98+54)/168 = 0.89.  The accuracy in both sets are similar. 
+```{r Q1f,echo=FALSE}
+############### 1f
+prob.train <- predict(log.mod, train.set, type = "response")
+prob.test <- predict(log.mod, test.set,type = "response")
+
+glm.train <- rep("B",400)
+glm.test <- rep("B",168)
+glm.train[prob.train > 0.5] <- "M"
+glm.test[prob.test > 0.5] <- "M"
+
+kable(table(glm.train,train.set$diagnosis),caption = "confusion table for training set")
+
+kable(table(glm.test,test.set$diagnosis), capstion = "confusion table for test set")
+```
+
+
+## g). 
+
+With a higher value of decision cutoff, the decision boundary is more lean towards the right side (more yellow points). Based on the plots, the cutoff performs the best at cutoff at 0.25. 
+
+```{r Q1g,echo=FALSE}
+############### 1g
+gen.df<- as.data.frame(expand.grid(radius = seq(5,30,length.out = 100),
+                           texture = seq(9,40, length.out = 100)))
+
+gen.pred <- predict(log.mod, newdata = gen.df,type = "response")
+
+log.cutoffs <- function(p){
+  
+  gen.class <- rep(0,nrow(gen.df))
+  gen.class[gen.pred > p] <- 1
+  
+  ggplot() + geom_point(aes(x = gen.df$radius, y = gen.df$texture, 
+                            color = as.factor(gen.class)))+
+    geom_point(aes(x = train.set$radius,y=train.set$texture, 
+                   color = train.set$diagnosis)) +
+    labs(x = "radius",y = "texture",color = "diagnosis") +
+    scale_color_manual(values=c("skyblue1", "darkolivegreen1", "skyblue3","darkolivegreen3"))
+}
+
+
+
+
+log.cutoffs(0.5) +
+  ggtitle("scatterplot of different decision boudary of 0.5")
+log.cutoffs(0.25) +
+  ggtitle("scatterplot of different decision boudary of 0.25")
+log.cutoffs(0.75) +
+  ggtitle("scatterplot of different decision boudary of 0.75")
+
+
+
+```
+## h).
+
+```{r Q1h,echo=FALSE}
+############### 1h
+n_segm = 20
+TPR = replicate(n_segm, 0)
+FPR = replicate(n_segm, 0)
+p_th = seq(0,1,length.out = n_segm)
+
+for (i in 1:n_segm) {
+  glm.label.test = rep("B", nrow(test.set))
+  glm.label.test[prob.test > p_th[i]] = "M"
+  
+  tt.glm.test = table(glm.label.test, test.set$diagnosis)
+  TPR[i] = mean(glm.label.test[test.set$diagnosis == 'M'] ==
+                  test.set$diagnosis[test.set$diagnosis == 'M'])
+  FPR[i] = mean(glm.label.test[test.set$diagnosis == 'B']
+                !=test.set$diagnosis[test.set$diagnosis == 'B'])
+}
+
+# plot(x = FPR, y = TPR, 'l')
+ggplot() + geom_path(aes(x = FPR, y = TPR)) + ggtitle("ROC curve on the test set")
+
+
+```
+
+# 2.
+
+## a). 
+
+The prior probabilities are the probability of classify someone to benign or malignant before the next prediction. And the group means are the mean radius and texture for benign and malignant respectively. Then we could use these values to calculate posterior probabilities as follows:
+
+$$\frac{pi_kf_k(x)}{\sum_{l=1}^{K}pi_lf_l(x)}$$. 
+
+And the table 
+
+```{r Q2a,echo=FALSE}
+
+############### 2a
+lda.model <- lda(diagnosis~., data = train.set, centre = TRUE, scale = TRUE)
+
+tab.lda <- cbind(prior = c(0.625,0.3765),lda.model$means)
+kable(tab.lda, caption = "The estimated ‘Prior probabilities of groups’ and ‘Group means’") 
+
+```
+
+## b).
+
+The prediction accuracy on the training set is 0.8775, and the prediction accuracy on the test set is 0.8817. The accuracy from the test set is slightly higher than the training set, it it possible. But the accuracy from the test set can also be lower if we change a seed. 
+
+```{r Q2b,echo=FALSE}
+############### 2b
+lda.pred.train <- predict(lda.model, train.set)
+lda.pred.test <- predict(lda.model, test.set)
+
+
+tt.lda.train = table(lda.pred.train$class, train.set$diagnosis)
+acc.lda.train <- (239+112)/(38+11+239+112)
+acc.train <- mean(lda.pred.train$class == train.set$diagnosis)
+
+
+tt.lda.test = table(lda.pred.test$class, test.set$diagnosis)
+acc.lda.test <- (102+47)/(102+47+15+5)
+acc.test <- mean(lda.pred.test$class == test.set$diagnosis)
+
+
+```
+
+## c). 
+
+The plots are really like the plot form 1g. The best performance is still from cutoff point at 0.25. 
+
+```{r Q2c,echo=FALSE}
+############### 2c
+
+cutoffs <- function(p,mod,dat){
+  pred <- predict(mod, newdata = dat, type = "response")
+  gen.class <- rep(0,nrow(dat))
+  gen.class[pred$posterior[,2] > p] <- 1
+  dat$prediction <- gen.class
+  
+  ggplot() + geom_point(data = dat,
+                        mapping=aes(x = radius, y = texture, 
+                                    color = as.factor(prediction)),alpha = 0.2) +
+    geom_point(data= train.set, mapping =aes(radius,texture,color = diagnosis))+
+    scale_color_manual(values=c("skyblue1", "darkolivegreen1", "skyblue3","darkolivegreen3"))+
+    labs(x = "radius",y = "texture",color = "diagnosis") 
+}
+
+
+
+cutoffs(0.25,lda.model,gen.df) +
+  ggtitle("scatterplot of different decision boudary of 0.25")
+cutoffs(0.5,lda.model,gen.df) + 
+  ggtitle("scatterplot of different decision boudary of 0.5")
+cutoffs(0.75,lda.model,gen.df) +
+  ggtitle("scatterplot of different decision boudary of 0.75")
+
+```
+## d).
+
+The ROC is as follows:
+
+```{r Q2d,echo=FALSE}
+
+############### 2d
+n_segm = 20
+lda.TPR = replicate(n_segm, 0)
+lda.FPR = replicate(n_segm, 0)
+p_th = seq(0,1,length.out = n_segm)
+
+roc_cur <- function(test.prob,tpr,fpr){
+  for (i in 1:n_segm) {
+    label.test = rep("B", nrow(test.set))
+    label.test[test.prob > p_th[i]] = "M"
+
+    tt.glm.test = table(label.test, test.set$diagnosis)
+    tpr[i] = mean(label.test[test.set$diagnosis == 'M'] ==
+                  test.set$diagnosis[test.set$diagnosis == 'M'])
+    fpr[i] = mean(label.test[test.set$diagnosis == 'B']
+                !=test.set$diagnosis[test.set$diagnosis == 'B'])
+    
+  }
+  return(rbind(tpr,fpr))
+}
+
+
+
+# plot(x = FPR, y = TPR, 'l')
+lda.cur <- roc_cur(lda.pred.test$posterior[,2],lda.TPR,lda.FPR)
+ggplot() + geom_path(aes(x = lda.cur[2,], y = lda.cur[1,])) + 
+     ggtitle("ROC curve on the test set in LDA")  +
+  labs(x = "False positive value",y = "True positive value")
+  
+
+```
+
+## e). 
+
+The AUC is 0.94 in the test set.
+
+```{r Q2e, echo = F}
+AUC.lda <- abs(trapz(lda.cur[2,],lda.cur[1,]))# pracma package trapz(FPR, TPR)
+
+
+```
+
+# 3. 
+
+## a).
+
+The prior probabilities are the probability of classify someone to benign or malignant before the next prediction. And the group means are the mean radius and texture for benign and malignant respectively. Then we could use these values to calculate posterior probabilities with bayes assumption.
+
+```{r Q3a,echo=FALSE}
+
+############### 3a
+qda.model <- qda(diagnosis~., data = train.set, centre = TRUE, scale = TRUE)
+
+
+tab.qda <- cbind(prior = c(0.625,0.3765),qda.model$means)
+kable(tab.qda)
+
+```
+
+## b).
+
+The prediction accuracy on the training set is 0.88, and the prediction accuracy on the test set is 0.90. The accuracy from the test set is slightly higher than the training set, it it possible. But the accuracy from the test set can also be lower if we change a seed. 
+
+```{r Q3b,echo=FALSE, results=F}
+############### 3b
+qda.pred.train <- predict(qda.model, train.set)
+qda.pred.test <- predict(qda.model, test.set)
+
+
+tt.qda.train = table(qda.pred.train$class, train.set$diagnosis)
+acc.qda.train <- (237+115)/(13+35+237+115)
+acc.qda.train <- mean(qda.pred.train$class == train.set$diagnosis)
+
+
+tt.qda.test = table(qda.pred.test$class, test.set$diagnosis)
+acc.qda.test <- (102+50)/(102+50+12+5)
+acc.qda.test <- mean(qda.pred.test$class == test.set$diagnosis)
+
+
+```
+
+## c). 
+
+The plots are really like the plot form 1g. The best performance is still from cutoff point at 0.25. 
+
+```{r Q3c,echo=FALSE}
+############### 3c
+cutoffs(0.25,qda.model,gen.df) +
+  ggtitle("scatterplot of different decision boudary of 0.25")
+cutoffs(0.5,qda.model,gen.df) + 
+  ggtitle("scatterplot of different decision boudary of 0.5")
+cutoffs(0.75,qda.model,gen.df) +
+  ggtitle("scatterplot of different decision boudary of 0.75")
+
+```
+
+## d).
+
+The ROC is as follows:
+
+
+```{r Q3d,echo=FALSE}
+
+############### 3d
+n_segm = 40
+qda.TPR = replicate(n_segm, 0)
+qda.FPR = replicate(n_segm, 0)
+p_th = seq(0,1,length.out = n_segm)
+
+qda.cur <- roc_cur(qda.pred.test$posterior[,2],qda.TPR,qda.FPR)
+ggplot() + geom_path(aes(x = qda.cur[2,], y = qda.cur[1,])) + 
+     ggtitle("ROC curve on the test set in QDA") +
+  labs(x = "False positive value", y = "True positive value")
+
+```
+
+## e). 
+
+```{r Q3e, echo=FALSE}
+
+############# 3e
+AUC.qda <- abs(trapz(qda.cur[2,],qda.cur[1,]))# pracma package trapz(FPR, TPR)
+
+
+```
+
+The estimated AUC is 0.95.
+
+
+
+# 4.
+
+## a). 
+
+The accuracy in training set is decreasing as k increases, however, the accuracy in the test set is increasing as k increases.
+
+```{r Q4a,echo=FALSE}
+
+############### 4a
+kset = c(1,2,3,4,20)
+
+train.num = train.set[,!sapply(train.set, is.factor)]
+train.num = scale(train.num)
+test.num = test.set[,!sapply(test.set, is.factor)]
+test.num = scale(test.num)
+knn.mean.train <- rep(0,5)
+knn.mean.test <- rep(0,5)
+knn.table <- function(k){
+  knn.train.pred <- knn(train = train.num,
+                      test  = train.num,
+                      cl    = train.set$diagnosis, k = k)
+  knn.test.pred <- knn(train =train.num,
+                     test  = test.num,
+                     cl    = train.set$diagnosis, k = k)
+  tt.knn.train = table(knn.train.pred, train.set$diagnosis)
+  tt.knn.train = kable(tt.knn.train, caption = paste0("confusion table of k=",k))
+  return(tt.knn.train)
+
+}
+for (i in (1:length(kset))){
+  knn.train.pred <- knn(train = train.num,
+                      test  = train.num,
+                      cl    = train.set$diagnosis, k = kset[i])
+  knn.test.pred <- knn(train =train.num,
+                     test  = test.num,
+                     cl    = train.set$diagnosis, k = kset[i])
+  knn.mean.train[i] = mean(knn.train.pred == train.set$diagnosis)
+
+  tt.knn.test = table(knn.test.pred, test.set$diagnosis)
+  knn.mean.test[i] = mean(knn.test.pred == test.set$diagnosis)
+
+}
+knn.table(1)
+knn.table(2)
+knn.table(3)
+knn.table(4)
+knn.table(20)
+acc.knn <- matrix(NA, nrow = 2, ncol = 5)
+
+acc.knn <- as.data.frame(round(rbind(knn.mean.train,knn.mean.test),3))
+rownames(acc.knn) <- c("acc.train","acc.test")
+colnames(acc.knn) <- c("k = 1","k=2","k=3","k=4","k=20")
+kable(acc.knn, caption = "accuracy of knn in training and test set")
+```
+
+
+## b). 
+
+As k increases, the boundaries are smoother. When K is small, the boundary is wiggly and more specific to each point. 
+
+```{r Q4b,echo=FALSE}
+############ 4b
+df.num = gen.df[,!sapply(gen.df, is.factor)]
+
+
+plot.knn <- function(k){
+  train.num.knn = train.set[,!sapply(train.set, is.factor)]
+  knn.pred <- knn(train = scale(train.num.knn),
+                      test  = scale(df.num),
+                      cl    = train.set$diagnosis, k = k)
+  df.num$prediction <- knn.pred
+  ggplot() + geom_point(df.num, mapping=aes(x = radius,y = texture, 
+                            color = as.factor(prediction)),alpha = 0.1) + 
+    geom_point(data= train.set, mapping =aes(x = radius,y = texture,color = diagnosis))+
+    labs(x = "radius",y = "texture",color = "diagnosis") 
+}
+plot.knn(1)+ggtitle("Decision boundary for KNN, k=1")
+plot.knn(2)+ggtitle("Decision boundary for KNN, k=2")
+plot.knn(3)+ggtitle("Decision boundary for KNN, k=3")
+plot.knn(4)+ggtitle("Decision boundary for KNN, k=4")
+plot.knn(20)+ggtitle("Decision boundary for KNN, k=20")
+
+```
+
+
+## c).
+
+I would choose a neighbor of 14, the accuracy in test set is not high, and the accuracy in training set is almost at the lowest point. After k=14, the accuracy in training set is not changing much, but the accuracy in test set is increasing, which is not a good sign. 
+
+```{r Q4c,echo=FALSE}
+############ 4c
+Kset <- c(1:20)
+Knn.mean.train <- rep(0,20)
+Knn.mean.test <- rep(0,20)
+for (i in Kset){
+  Knn.train.pred <- knn(train = train.num,
+                      test  = train.num,
+                      cl    = train.set$diagnosis, k = i)
+  Knn.test.pred <- knn(train =train.num,
+                     test  = test.num,
+                     cl    = train.set$diagnosis, k = i)
+
+  Knn.mean.train[i] = mean(Knn.train.pred == train.set$diagnosis)
+
+  Knn.mean.test[i] = mean(Knn.test.pred == test.set$diagnosis)
+
+}
+
+acc.knn.20 <- rbind(Knn.mean.train,Knn.mean.test)
+ggplot() + 
+  geom_line(aes(x = Kset, y = Knn.mean.train, color = 1),lty = "dashed") + 
+  geom_line(aes(x = Kset, y = Knn.mean.test, color = 0),lty = "dashed")+
+  geom_point() +
+  labs(
+    title = "KNN prediction accuracy",
+    x = "k",
+    y = "accuracy",
+    color = c("train","test")
+  )
+
+```
+
+
+## Appendix
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+

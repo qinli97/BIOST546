@@ -1,0 +1,290 @@
+---
+title: "BIOST546_HW4"
+author: "Qin Li"
+date: "3/1/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F, message = F)
+getwd()
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(GGally)
+library(MASS)
+library(ggplot2)
+library(dplyr)
+library(class)
+library(dummies)
+library(pracma)
+library(ggcorrplot)
+library(datawizard)
+```
+
+# 1.
+
+## 1 a).
+
+The data set has 371 observations, 12 predictors and with 171 no heart disease and 200 with heart disease. 
+
+
+```{r q1a}
+load("data/heart.RData")
+
+num_class <- full %>% group_by(Disease) %>% summarise(n = n())
+num_class
+full$Disease <- as.factor(ifelse(full$Disease == 'Heart Disease',1,0))
+set.seed(2)
+train.id <- sample(dim(full)[1], 200)
+train.set <- full[train.id,]
+test.set <- full[-train.id,]
+
+
+```
+
+## 1 b).
+
+
+
+```{r q1b}
+library(tree)
+tree.heart<-tree(Disease~.,train.set) # Fit (overgrown) tree
+summary(tree.heart)
+
+# Plots 
+
+dev.new()
+plot(tree.heart)
+text(tree.heart)
+
+```
+
+## 1 c). 
+
+The training misclassification error is 0.12, and the test misclassification error is 0.23. It is predictable that the test set has a higher misclassification error than the training set for the possible overfitting in the training set. 
+
+```{r q1c}
+
+yhat.train<-predict(tree.heart,newdata=train.set,type = "class")
+mean(yhat.train!=train.set$Disease)
+
+
+
+yhat.test<-predict(tree.heart,newdata=test.set,type = "class")
+mean(yhat.test!=test.set$Disease)
+
+
+
+```
+
+## 1 d).
+
+The branches highlighted are Thalach, Exang, slope, Thal, Age and Trestbps. 
+
+
+```{r q1d}
+set.seed(2)
+cv.heart=cv.tree(tree.heart,FUN=prune.misclass)
+cv.heart
+plot(cv.heart$size,cv.heart$dev,type="b")
+best <- cv.heart$size[which.min(cv.heart$dev)]
+
+prune.heart<-prune.tree(tree.heart,best=best)
+plot(prune.heart)
+text(prune.heart,pretty=0)
+
+```
+
+## 1 e). 
+
+
+The training misclassification error is 0.14, and the test misclassification error is 0.27. It is predictable that the test set has a higher misclassification error than the training set for the possible overfitting in the training set, and also the misclassification error in pruned tree are both bigger than unpruned tree, because we use less branches. The bias increases but the variance decreases if we have less branches. 
+
+
+```{r q1e}
+
+yhat.train2<-predict(prune.heart,newdata=train.set,type = "class")
+mean(yhat.train2!=train.set$Disease)
+
+
+yhat.test2<-predict(prune.heart,newdata=test.set,type = "class")
+mean(yhat.test2!=test.set$Disease)
+```
+
+## 1 f). 
+
+The misclassification error in the training set is 0, and the misclassification error in the test set is 0.23. The random forest is overfitting in the training set, therefore results in 0 misclassification error. And also because of the overfitting in the training set, the error in the test set is relatively high. 
+
+```{r q1f}
+library(randomForest)
+set.seed(2)
+bag.heart<-randomForest(Disease~.,train.set, mtry = 12,importance=TRUE)
+bag.heart
+
+yhat.bag.train<-predict(bag.heart,newdata=train.set,type = "class")
+
+mean(yhat.bag.train!=train.set$Disease)
+
+yhat.bag.test<-predict(bag.heart,newdata=test.set, type = "class")
+
+mean(yhat.bag.test!=test.set$Disease)
+
+```
+
+## 1 g).
+
+
+With mtry = 3, the misclassification error in the training set is 0, and the misclassification error in the test set is 0.21. The random forest is overfitting in the training set, therefore results in 0 misclassification error. And also because of the overfitting in the training set, the error in the test set is relatively high. But with less features, the error in test set dropped a little bit compare to fitting with all features. 
+
+```{r q1g}
+library(randomForest)
+set.seed(2)
+rf.heart<-randomForest(Disease~.,train.set,mtry = 4,importance=TRUE)
+bag.heart
+
+yhat.bag.train2<-predict(rf.heart,newdata=train.set, type = "class")
+
+mean(yhat.bag.train2!=train.set$Disease)
+
+yhat.bag.test2<-predict(rf.heart,newdata=test.set, type = "class")
+
+mean(yhat.bag.test2!=test.set$Disease)
+
+```
+
+## 1 h).
+
+In random forest, only a subset of features are selected at random and the best split of feature from the subset for splitting a node. Whereas the bagging is using all of the features for splitting a node. The randomness from bagging is probably from the selection of nodes. 
+
+## 1 i). 
+
+The misclassification error in the training set is 0.52, and the misclassification error in the test set is 0.56. Both errors are much higher than the previous models. 
+
+```{r q1i}
+library(gbm)
+set.seed(2)
+boost.heart<- gbm(Disease~.,data=train.set,
+                  distribution="bernoulli",n.trees=500,
+                  interaction.depth=2,shrinkage=0.1)
+# training error
+yhat.boost.train.prob <- predict(boost.heart, newdata=train.set, 
+                                 n.trees=500, type ="response")
+yhat.boost.train = rep(0, nrow(train.set))
+yhat.boost.train[yhat.boost.train.prob > 0.5] <- 1
+mean(yhat.boost.train!=train.set$Disease)
+# testing error
+yhat.boost.test.prob <- predict(boost.heart, newdata=test.set, 
+                                n.trees=500, type ="response")
+yhat.boost.test = rep(0, nrow(test.set))
+yhat.boost.test[yhat.boost.test.prob > 0.5] <- 1
+mean(yhat.boost.test!=test.set$Disease)
+
+```
+
+
+
+# 2.
+
+## 2 a).
+
+```{r q2a}
+set.seed(2)
+x = runif(50, -1,1)
+noise = rnorm(50)
+
+```
+
+## 2 b). 
+
+```{r q2b}
+
+y = 3-2*x+3*x^3+noise
+f = 3-2*x+3*x^3
+
+df <- as.data.frame(cbind(y,f,x))
+```
+
+
+## 2 c). 
+
+```{r q2c}
+model_spline3 <- smooth.spline(x, y, lambda = 1e-3)
+model_spline7 <- smooth.spline(x, y, lambda = 1e-7)
+
+```
+
+## 2 d). 
+
+With smaller $\lambda$, the spline is smoother
+
+```{r q2d}
+
+grid <- seq(-1,1,by = 0.005)
+y.grid <- 3 - 2*grid + 3*grid^3
+grid.pred3 <- predict(model_spline3, x = grid)
+grid.pred7 <- predict(model_spline7, x = grid)
+
+ggplot() + geom_point(aes(x = x, y = y,color = "y"))+
+  geom_point(aes(x = grid, y = y.grid,color = 'y.grid')) +
+  geom_point(aes(x = grid, y = grid.pred3$y, color = 'spline 1'))+
+  geom_point(aes(x = grid, y = grid.pred7$y, color = 'spline 2'))+
+  labs(y = "y values", x = "x", color = 'y values', title = "scatterplot")
+```
+
+## 2 e).
+
+The cross-validationd choice of lambda is 8.15727e-05. 
+
+```{r q2e}
+model_spline_cv <- smooth.spline(x,y, cv=TRUE)
+cv.grid <- predict(model_spline_cv, x = grid)
+model_spline_cv$lambda
+```
+
+## 2 f).
+
+
+```{r q2f}
+ggplot() + geom_point(aes(x = x, y = y,color = "y"))+
+  geom_point(aes(x = grid, y = y.grid,color = 'f.grid')) +
+  geom_point(aes(x = grid, y = cv.grid$y, color = 'spline CV'))+
+  labs(y = "y values", x = "x", color = 'y values', title = "scatterplot")
+
+```
+
+## 2 g).
+
+The variance in $\lambda=1e-3$ is 0.11, The variance in $\lambda=1e-7$ is 0.44. Variance in the second model is clearly much higher than in the first one. 
+
+```{r q2g}
+library(boot)
+sp1 <- function(df, indices){
+  d <- df[indices,]
+  fit1 <- smooth.spline(d$x,d$y, lambda = 1e-3)
+  pred <- predict(fit1, x = 0)
+  pred$y
+}
+results <- boot(data = df, statistic = sp1, R=1000)
+var(results$t)
+#
+sp2 <- function(ddf, indices){
+  d <- df[indices,]
+  fit2 <- smooth.spline(d$x,d$y, lambda = 1e-7)
+  pred <- predict(fit2, x = 0)
+  pred$y
+}
+results2 <- boot(data = df, statistic = sp2, R=1000)
+var(results2$t)
+
+```
+
+
+
+
+
+
+
+
+
+

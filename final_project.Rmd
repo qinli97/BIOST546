@@ -1,0 +1,340 @@
+---
+title: "Final Project"
+author: "Qin Li"
+date: "2/2/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+getwd()
+library(tidyverse)
+library(ggplot2)
+
+library(knitr)
+
+library(MASS)
+library(ggplot2)
+library(dplyr)
+library(class)
+library(dummies)
+library(glmnet)
+
+```
+
+
+```{r data}
+load("data/ptb.RData")
+
+set.seed(220)
+idx <- sample(nrow(X_train),2000)
+x_val <- X_train[idx,]
+x_train <- X_train[-idx,]
+y_val <- y_train[idx]
+y_train2 <- y_train[-idx]
+
+df.train <- as.data.frame(cbind(y_train2,x_train))
+df.val <- as.data.frame(cbind(y_val, x_val))
+
+```
+
+```{r log.mod}
+log.mod <- glm(y_train2~., family = "binomial", data = df.train)
+prob.train <- predict(log.mod, newdata =df.train, type = "response")
+
+glm.train <- rep(0,length(y_train2))
+
+glm.train[prob.train > 0.5] <- 1
+
+
+kable(table(glm.train,df.train$y_train2),caption = "confusion table for training set")
+
+acc.train <- mean(df.train$y_train2 == glm.train) ## 0.850
+
+
+prob.val <- predict(log.mod, newdata = x_val, type = "response")
+glm.val <- rep(0, nrow(x_val))
+glm.val[prob.val > 0.5] <- 1
+ 
+acc.train <- mean(y_val == glm.val) # 0.838
+
+
+
+
+# log_mod_outcome <- write.table(glm.test, file = "log_mod_outcome.txt", sep = "")
+
+```
+
+
+```{r lasso}
+set.seed(413)
+nlambda = 100
+
+lasso.cv <- cv.glmnet(x=as.matrix(x_train), y=y_train2, 
+                      family = "binomial",alpha=1, nlambda=100)
+plot(lasso.cv)
+coef(lasso.cv, s=lasso.cv$lambda.min)
+lasso.model <- glmnet(x=as.matrix(x_train), y=y_train2, alpha = 1, family = "binomial",
+                      lambda = lasso.cv$lambda.min)
+
+# Make prediction on test data
+prob.train <- lasso.model %>% predict(newx = as.matrix(x_train))
+prob.test <- lasso.model %>% predict(newx = as.matrix(x_val))
+train.classes <- ifelse(prob.train > 0.5, 1, 0)
+test.classes <- ifelse(prob.test > 0.5, 1,0)
+# Model accuracy
+
+mean(train.classes == y_train2)
+table(train.classes,df.train$y_train)
+
+
+mean(test.classes == y_val)
+
+```
+
+
+```{r knn}
+
+####################### KNN ############################
+
+
+## "Fit" KNN (the output is a vector of predicted outcomes)
+knn_val = c(1,5,10,15,20)
+knn.acc <- matrix(NA, nrow = 5, ncol = 2)
+for (i in 1:length(knn_val)){
+  knn.train.pred <- knn(train = x_train,
+                      test  = x_train,
+                      cl    = y_train2, k = knn_val[i])
+  knn.acc[i,1] <- mean(knn.train.pred == y_train2)
+  knn.test.pred <- knn(train = x_train,
+                     test  = x_val,
+                     cl    = y_train2, k = knn_val[i])
+  knn.acc[i,2] <- mean(knn.test.pred == y_val)
+}
+
+colnames(knn.acc) <- c("train_acc","validation_acc")
+rownames(knn.acc) <- c("k=1","k=5","k=10","k=15","k=20")
+knn.acc
+knn.acc2 <- matrix(NA, nrow = 10, ncol = 2)
+knn_val2 = seq(1,10,1)
+for (i in 1:length(knn_val2)){
+  knn.train.pred <- knn(train = x_train,
+                      test  = x_train,
+                      cl    = y_train2, k = knn_val2[i])
+  knn.acc2[i,1] <- mean(knn.train.pred == y_train2)
+  knn.test.pred <- knn(train = x_train,
+                     test  = x_val,
+                     cl    = y_train2, k = knn_val2[i])
+  knn.acc2[i,2] <- mean(knn.test.pred == y_val)
+}
+led <- c("train","validation")
+ggplot()+geom_line(aes(x = knn_val2, y =knn.acc2[,1]), col = "blue")+
+  geom_line(aes(x = knn_val2, y =knn.acc2[,2]), col = 'orange') + 
+  geom_point(aes(x = knn_val2, y =knn.acc2[,1]), col = "blue") +
+  geom_point(aes(x = knn_val2, y =knn.acc2[,2]), col = 'orange') +
+  ylab("accuracy") + xlab("k values") + 
+  ggtitle("Figure 1: KNN Accuracy in training and validation set")
+
+
+plot(x = knn_val2, y =knn.acc2[,1],col='blue',type = 'b') + points(x = knn_val2, y =knn.acc2[,2], col = "orange") + 
+  
+plot(x = knn_val2, y =knn.acc2[,1],col='blue',type = 'b')
+par(new=TRUE)
+plot(x = knn_val2, y =knn.acc2[,2], col = "orange",type = 'b')
+
+colnames(knn.acc2) <- c("train_acc","validation_acc")
+rownames(knn.acc2) <- c("k=1","k=2","k=3","k=4","k=5","k=6","k=7","k=8","k=9","k=10")
+knn.acc2
+```
+
+
+
+
+
+
+```{r trees}
+library(tree)
+tree.ccg <- tree(y_train~., data = df.train)
+summary(tree.ccg)
+plot(tree.ccg)
+text(tree.ccg)
+
+cv.ccg = cv.tree(tree.ccg)
+cv.ccg
+
+plot(cv.ccg$size, cv.ccg$dev, type = "b")
+prune.ccg<-prune.tree(tree.ccg,best=9)
+plot(prune.ccg)
+text(prune.ccg,pretty=0)
+
+
+y.train <- predict(tree.ccg, newdata = X_train,type = "class")
+
+mean(y.train == y_train)
+table(y.train,y_train)
+
+y.pred <- predict(tree.ccg, newdata = X_test, type = "class")
+
+## 
+# Pruning
+cv.med=cv.tree(tree.med)
+cv.med
+plot(cv.med$size,cv.med$dev,type="b")
+
+prune.med<-prune.tree(tree.med,best=5)
+plot(prune.med)
+text(prune.med,pretty=0)
+
+yhat<-predict(tree.med,newdata=data_test)
+charges.test<-data_test[,"charges"]
+plot(yhat,charges.test)
+abline(0,1)
+mean((yhat-charges.test)^2)
+ 
+```
+
+
+
+
+
+```{r randomforest}
+### random forest
+library(randomForest)
+set.seed(1)
+bag.ccg.all <-randomForest(y_train2~., data = df.train, importance=TRUE)
+bag.ccg
+
+ytrain.bag<-predict(bag.ccg.all,newdata=x_train)
+yval.bag<-predict(bag.ccg.all,newdata=x_val)
+acc.bag.train <- mean(ytrain.bag == y_train2)
+acc.bag.val <- mean(yval.bag == y_val)
+
+
+
+bag.ccg97 <-randomForest(y_train2~., data = df.train, mtry = 97,importance=TRUE)
+
+ytrain.bag97<-predict(bag.ccg97,newdata=x_train)
+yval.bag97<-predict(bag.ccg97,newdata=x_val)
+acc.m97.train <- mean(ytrain.bag97 == y_train2)
+acc.m97.val <- mean(yval.bag97 == y_val)
+
+
+
+bag.ccg14 <-randomForest(y_train2~., data = df.train, mtry = 14,importance=TRUE)
+
+ytrain.bag14<-predict(bag.ccg14,newdata=x_train)
+yval.ba14<-predict(bag.ccg97,newdata=x_val)
+acc.m14.train <- mean(ytrain.bag14 == y_train2)
+acc.m14.val <- mean(yval.ba14 == y_val)
+
+acc.rf <- as.matrix(rbind(acc.m14.train,acc.m97.train,acc.bag.train))
+acc.rf.val <- rbind(acc.m14.val,acc.m97.val,acc.bag.val)
+acc.rf <- cbind(acc.rf,acc.rf.val)
+
+ggplot()+geom_line(aes(x = c(14,97,187), y =acc.rf[,1]), col = "blue")+
+  geom_line(aes(x = c(14,97,187), y =acc.rf[,2]), col = 'orange') + 
+  geom_point(aes(x = c(14,97,187), y =acc.rf[,1]), col = "blue") +
+  geom_point(aes(x = c(14,97,187), y =acc.rf[,2]), col = 'orange') +
+  ylab("accuracy") + xlab("mtry") + 
+  ggtitle("Figure 2: Random Forest Accuracy in training and validation set")
+
+
+yhat.bag<-predict(bag.ccg.all,newdata=X_test)
+
+
+
+
+```
+
+bag.ccg2<-randomForest(y_train~., data = df.train, mtry = 6,ntree=25)
+ytrain.bag<-predict(bag.ccg2,newdata=X_train)
+table(ytrain.bag,df.train$y_train)
+# Note: different from predict(bag.med), which are the OOB predictions
+# See ?predict.randomForest
+rf.ccg<-randomForest(y_train~., data = df.train,importance=TRUE)
+yhat.bag<-predict(rf.ccg,newdata=X_train)
+table(yhat.bag,df.train$y_train)
+yhat.test.rf <- predict(rf.ccg,newdata=X_test)
+write.table(yhat.test.rf, file = "ytest_pred.txt", sep = "\t",
+            row.names = FALSE,col.names = FALSE)
+
+
+## boosting
+# library(gbm)
+# 
+# set.seed(1)
+# boost.med<-gbm(y_train~., data =df.train,distribution="bernoulli",
+#                n.trees=500,interaction.depth=4)
+# 
+# summary(boost.med)
+# 
+# yhat.boost<-predict(boost.med,newdata=X_train)
+# table(yhat.boost,df.train$y_train)
+# 
+# yhat.train.boost <- predict(yhat.boost,newdata=X_)
+# mean((yhat.boost-charges.test)^2)
+# 
+# # Playing around with the hyperparameters
+# boost.med<-gbm(charges~.,data=data_train,distribution="gaussian",n.trees=500,interaction.depth=2,shrinkage=0.1)
+# yhat.boost<-predict(boost.med,newdata=data_test,n.trees=500)
+# mean((yhat.boost-charges.test)^2)
+
+
+
+## nn
+library(keras)
+library(tensorflow)
+
+y_train = to_categorical(y_train)
+
+
+
+
+# reshape
+ecg_train <- array_reshape(X_train, c(nrow(X_train), 187))
+
+ecg_test <- array_reshape(X_test, c(nrow(X_test), 187))
+# rescale
+ecg_train <- x_train / 255
+ecg_test <- x_test / 255
+
+ecg_ytrain <- to_categorical(y_train, 2)
+
+
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 256, activation = 'relu', input_shape = c(784)) %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = 10, activation = 'softmax')
+
+summary(model)
+
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(),
+  metrics = c('accuracy')
+)
+y_train = to_categorical(y_train)
+
+history <- model %>% 
+  fit(
+    x = matrix(X_train), y = matrix(y_train),
+    epochs = 10,
+    validation_data = 0.2,
+    verbose = 2
+  )
+
+
+ghistory <- model %>% fit(
+  X_train, y_train, 
+  epochs = 30, batch_size = 128, 
+  validation_split = 0.2
+)
+
+plot(history)
+```
+
+
+

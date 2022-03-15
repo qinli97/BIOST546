@@ -1,0 +1,250 @@
+---
+title: "BIOST546_hw1"
+author: "Qin Li"
+date: "1/10/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+library(haven)
+library(knitr)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+getwd()
+```
+
+## Q1
+
+
+### a.
+
+There are no missing data in this dataset.
+```{r data}
+load("code/Medical_Cost.RData")
+med <- df
+sum(is.na(med))
+
+```
+### b.
+
+```{r Q1b}
+p1 <- ggplot(med, mapping = aes(x = bmi, y = charges, color = smoker)) + geom_point() +
+  ggtitle("scatterplot of bmi on chargers for smoke status")
+p1
+```
+### c
+
+#### lm1 
+Based on a simple linear regression model, we estimate that differ by 1 unit of bmi, difference in the mean charges 393.87 (95%CI: 289.41,498.34), with the higher bmi group has the higher charges. The MSE in the training set is 140777900. 
+
+
+
+
+
+```{r Q1c1}
+n <- nrow(med)
+lm1 <- lm(charges~bmi, data = med)
+kable(coef(lm1))
+lm1.bmi.ci <- confint(lm1,"bmi")
+lm1.mse <- mean((med$charges-predict(lm1))^2)
+p2 <- p1 + geom_abline(intercept = coef(lm1)[1], slope = coef(lm1)[2]) + labs(subtitle = "charges~bmi")
+p2
+```
+
+####lm2
+
+Based on a simple linear regression model, we estimate that the difference in the mean charges of  smokers compared with non-smoker is 23593.98, with the smoker group have the higher charges. And on average, for smokers, the charges increase 388.02 (95%CI: 325.66, 450.37) as the bmi increase by 1 unit. The MSE in the training set is 50126126. A 95% CI is an interval that, if applied to unlimited repeated experiments would cover the true parameter value in 95% of those experiments.
+
+```{r Q1c2}
+lm2 <- lm(charges~smoker+bmi, data = med)
+kable(coef(lm2))
+lm2.bmi.ci <- confint(lm2,"bmi")
+lm2.mse.train <- mean((med$charges-predict(lm2))^2)
+
+p3 <- p1 + geom_abline(intercept = coef(lm2)[1], slope = coef(lm2)[3],color = "red") + 
+  geom_abline(intercept = coef(lm2)[1]+coef(lm2)[2], slope = coef(lm2)[3],color = "blue")
+  labs(subtitle = "charges~smoker + bmi")
+p3
+```
+
+#### lm3 
+Based on the linear regression model, we estimated that with one unit difference in bmi, the mean chargers differ by 83.35 for non-smokers (95%CI: 22.01-144.69). We estimate that when comparing a smoker and a nonsmoker at same level of bmi, smoker have a mean chargers of 19066 lower than non-smokers. Therefore, we estimate that when comparing groups of smokers differ by one unit of bmi, the smoker with higher bmi has a mean charges of 1389.76 than non-smokers. The MSE of the training set is 37841585. 
+
+For smoker with a bmi of 29: 5879.42+83.35*29-19066+1389.76*29 = 29533.61
+For smoker with a bmi of 33: 5879.42+83.35*33-19066+1389.76*33 =  35426.05
+Charges change by 5892.44, if a smoker were to lower their bmi from 33 to 29.
+
+For smoker with a bmi of 29: 5879.42+83.35*29 = 8186.26
+For smoker with a bmi of 33: 5879.42+83.35*33 = 8629.97
+Charges change by  5167.7, if a nonsmoker were to lower their bmi from 33 to 29.
+
+
+```{r Q1c3}
+lm3 <- lm(charges~bmi*smoker, data = med)
+kable(coef(lm3))
+lm3.bmi.ci <- confint(lm3,"bmi")
+
+p4 <- p1 + geom_smooth(method = "lm", se = FALSE) + 
+  labs(subtitle = "charges~smoker*bmi")
+p4
+lm3.mse.train <- mean((med$charges-predict(lm3))^2)
+
+
+```
+
+### d
+
+BMI: We can reject the null hypothesis that there is no linear association between bmi and charges, while maintaining smoking status the same. 
+
+Smoking: We cannot reject the null hypothesis that there is no linear association between smoking status and charges, conditional on the other predictors. 
+
+smoker_bmi30p: We can reject the null hypothesis that there is no linear association between this predictor and charges, while maintaining smoking status the same. 
+
+bmi:smokeryes: We can reject the null hypothesis that there is no linear association between this predictor and charges, while maintaining smoking status the same. 
+
+bmi:smoker_bmi30p: We cannot reject the null hypothesis that there is no linear association between this predictor and charges, conditional on the other predictors.
+
+When we have another subset where the person is a smoker and the bmi is greater than 30, it is likely to have a higher chargers than people who is a smoker but have a bmi that is lower than 30. Therefore, bmi is an indicator that makes a difference in charges among smokers. If we discard those variables that are non-significant, the intercept for people is a smoker but have less than 30 BMI would have the same intercept as the people who do not smoke. And smoker would have a unit change in chargers as the unit of bmi increases as same, no matter the level of bmi.
+
+smoker at bmi 33: 5879.42+83.35*33+3191.77+14546.03+33*401.75+23.43*33 = 40398.71
+smoker at bmi 29: 5879.42+83.35*29++3191.77+401.74*29 = 23138.8
+
+On average, the charges will be 17259.91 lower if a smoker were to lower their bmi from 33 to 29. 
+
+non-smoker at bmi 33: 5879.42+83.35*33 = 8629.97
+non-smoker at bmi 29: 5879.42+83.35*29 = 8296.57
+
+On average, the charges will be 333.4 lower if a non-smoker were to lower their bmi from 33 to 29.
+
+
+
+```{r Q1d}
+med.boo <- med %>% mutate(smoker_bmi30p = ifelse(smoker == "yes" & bmi >30, 1,0))
+
+lm4 <- lm(charges~bmi*(smoker+smoker_bmi30p), data = med.boo)
+
+kable(coef(lm4))
+
+```
+
+
+## 2. 
+
+```{r Q2, out.width = "100%", fig.align = "center", echo = FALSE}
+knitr::include_graphics("hw1_q2.png")
+
+```
+
+
+## 3.
+
+
+```{r Q3c}
+set.seed(0)
+x <- rnorm(30, mean = 5, sd = 2)
+noise <- rnorm(30, mean = 0, sd =1)
+f <- 3-2*x+3*x^2
+y <- f+noise
+df <- as.data.frame(cbind(y,x,f))
+lm.x <- lm(y~x, data = df)
+lm.x2 <- lm(y~poly(x,2), data = df)
+lm.x4 <- lm(y~poly(x,4), data = df)
+
+lm.fx <- lm(f~x, data = df)
+lm.fx2 <- lm(f~poly(x,2), data = df)
+lm.fx4 <- lm(f~poly(x,4), data = df)
+```
+
+### d). 
+
+The training MSE is getting smaller as the degree of polynomial increases. 
+```{r Q3d}
+train.mse.x <- mean((y-predict(lm.x))^2)
+train.mse.x2 <- mean((y-predict(lm.x2))^2)
+train.mse.x4 <- mean((y-predict(lm.x4))^2)
+kable(rbind(train.mse.x,train.mse.x2,train.mse.x4))
+
+```
+
+### e). 
+The test MSE are huge compare to the training set, and the model 1 has the highest test MSE, the model 2 has the smallest test MSE, the MSE in model 3 is slightly bigger than model 2, but much smaller than model 1. 
+
+```{r Q3e}
+x.test <- rnorm(10000, mean = 5, sd =2)
+noise.test <- rnorm(10000, mean = 1, sd = 1)
+f.test <- 3-2*x.test+3*x.test^2
+y.test <- f.test + noise.test
+df.test <- as.data.frame(cbind(y.test,x.test,f.test))
+colnames(df.test) <- c("y","x","f")
+
+test.mse.x <- mean((y.test-predict(lm.x,df.test))^2)
+test.mse.x2 <- mean((y.test-predict(lm.x2,df.test))^2)
+test.mse.x4 <- mean((y.test-predict(lm.x4,df.test))^2)
+kable(rbind(test.mse.x,test.mse.x2,test.mse.x4))
+
+```
+
+### f). 
+The training MSE of the true regression function in the model 1 is slightly larger than y, whereas the training MSE of the true regression function in model 2 and 3 are smaller than training MSE of y. The training MSE in model 2 and 3 are very close to 0, but training MSE in model 2 is still smaller than model 3. 
+
+The test MSE of the true regression function are all smaller than the test MSE of y, the trend of test MSE of the true regression is also similar to those of the models in 3c. The test MSE in model 1 is still the largest, and test MSE in model 2 and 3 are very close to 0, but test MSE in model 2 is still smaller than model 3. 
+
+
+```{r Q1f}
+train.mse.fx <- mean((f-predict(lm.fx))^2)
+train.mse.fx2 <- mean((f-predict(lm.fx2))^2)
+train.mse.fx4 <- mean((f-predict(lm.fx4))^2)
+kable(rbind(train.mse.fx,train.mse.fx2,train.mse.fx4))
+
+test.mse.fx <- mean((f.test-predict(lm.fx,df.test))^2)
+test.mse.fx2 <- mean((f.test-predict(lm.fx2,df.test))^2)
+test.mse.fx4 <- mean((f.test-predict(lm.fx4,df.test))^2)
+kable(rbind(test.mse.fx,test.mse.fx2,test.mse.fx4))
+
+```
+
+g). 
+
+The model has the biggest bias in model 1, and model 2 has the smallest bias, and the bias in model 3 is slightly larger than in model 2 but much smaller than model 1. The variance in three models have the same trend that model 2 has the smallest variance, and model 1 has the highest variance. This is expected, since if we increase the flexbility, the bias increases and variance decreases. However, the model 2 is the most similar model that is to the true model. It makes sense that it has the smallest bias and variance. 
+
+```{r q3g}
+
+set.seed(0)
+rep.x <- replicate(40, rnorm(30, mean = 5, sd = 2))
+rep.noise <- replicate(40, rnorm(30, mean = 0, sd =1))
+rep.f <- 3-2*rep.x+3*rep.x^2
+rep.y <- rep.f +rep.noise
+mat.f <- matrix(NA, nrow = 40, ncol = 3)
+mat.y <- matrix(NA, nrow = 40, ncol = 3)
+ftrue.x <- 3-2*0.3+3*0.3^2
+
+for (i in seq(1,40)){
+  rep.df <- as.data.frame(cbind(rep.y[,i],rep.x[,i],rep.f[,i]))
+  colnames(rep.df) <- c("y","x","f")
+  rep.lm.x <- lm(y~x, data = rep.df)
+  mat.y[i,1] <- predict(rep.lm.x,data.frame(x=0.3))
+  
+  rep.lm.x2 <- lm(y~poly(x,2), data = rep.df)
+  mat.y[i,2] <- predict(rep.lm.x2,data.frame(x=0.3))
+  
+  rep.lm.x4 <- lm(y~poly(x,4), data = rep.df)
+  mat.y[i,3] <- predict(rep.lm.x4,data.frame(x=0.3))
+}
+bias.x <- (mean(mat.y[,1])-ftrue.x)^2
+bias.x2 <- (mean(mat.y[,2])-ftrue.x)^2
+bias.x4 <- (mean(mat.y[,3])-ftrue.x)^2
+var.x <- var(mat.y[,1])
+var.x2 <- var(mat.y[,2])
+var.x4 <- var(mat.y[,3])
+
+biases <- as.matrix(c(bias.x,bias.x2,bias.x4))
+rownames(biases) <- c("x","x2","x4")
+biases 
+vars <- c(var.x,var.x2,var.x4)
+vars
+```
+
+
+
